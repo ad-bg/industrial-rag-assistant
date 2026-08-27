@@ -18,7 +18,6 @@ def cargar_modelo_embeddings():
 def obtener_modelos_groq():
   try:
     response = client.models.list()
-    # Filtramos preferentemente modelos de lenguaje/chat
     modelos = [
         m.id
         for m in response.data
@@ -29,20 +28,22 @@ def obtener_modelos_groq():
     return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
 
-modelo_embeddings = cargar_modelo_embeddings()
+with st.spinner("Loading..."):
+  modelo_embeddings = cargar_modelo_embeddings()
+  lista_modelos = obtener_modelos_groq()
 
 documentos = [
     (
-        "Las devoluciones se aceptan hasta 30 días después de la compra, con"
-        " el producto en su empaque original."
+        "Returns are accepted up to 30 days after purchase, with the product in"
+        " its original packaging."
     ),
     (
-        "Los envíos internacionales no tienen devolución gratuita; el cliente"
-        " cubre el costo de envío de regreso."
+        "International shipping does not have free returns; the customer covers"
+        " the return shipping cost."
     ),
     (
-        "Los productos en oferta o liquidación no son elegibles para"
-        " devolución, solo para cambio de talla."
+        "Sale or clearance products are not eligible for return, only for size"
+        " exchange."
     ),
 ]
 
@@ -55,27 +56,41 @@ def buscar_fragmento(pregunta):
   return documentos[np.argmax(similitudes)]
 
 
-st.title("Asistente de Soporte RAG")
+st.title("RAG Support Assistant")
 
-lista_modelos = obtener_modelos_groq()
 modelo_seleccionado = st.selectbox(
-    "Selecciona el modelo de Groq:", lista_modelos
+    "Select the Groq model:", lista_modelos
 )
 
-pregunta = st.text_input("¿Qué duda tienes sobre nuestras políticas?")
+if "messages" not in st.session_state:
+  st.session_state.messages = []
 
-if pregunta:
-  fragmento = buscar_fragmento(pregunta)
-  prompt_rag = f"""Responde la pregunta del cliente usando SOLO la siguiente política de la tienda. Si la política no cubre la pregunta, dilo claramente.
+for message in st.session_state.messages:
+  with st.chat_message(message["role"]):
+    st.markdown(message["content"])
 
-Política: {fragmento}
-Pregunta: {pregunta}
-Respuesta muy breve y corta."""
+if prompt := st.chat_input("Type your question about the policies..."):
+  st.session_state.messages.append({"role": "user", "content": prompt})
+  with st.chat_message("user"):
+    st.markdown(prompt)
+
+  fragmento = buscar_fragmento(prompt)
+  prompt_rag = f"""Answer the customer's question using ONLY the following store policy. If the policy does not cover the question, state it clearly.
+
+Policy: {fragmento}
+Question: {prompt}
+Very short and concise answer."""
 
   try:
-    response = client.chat.completions.create(
-        model=modelo_seleccionado, messages=[{"role": "user", "content": prompt_rag}]
-    )
-    st.write("**Respuesta:**", response.choices[0].message.content)
+    with st.spinner("Loading..."):
+      response = client.chat.completions.create(
+          model=modelo_seleccionado,
+          messages=[{"role": "user", "content": prompt_rag}],
+      )
+      respuesta = response.choices[0].message.content
   except Exception as e:
-    st.error(f"Error al conectar con Groq: {e}")
+    respuesta = f"Error connecting to Groq: {e}"
+
+  st.session_state.messages.append({"role": "assistant", "content": respuesta})
+  with st.chat_message("assistant"):
+    st.markdown(respuesta)
